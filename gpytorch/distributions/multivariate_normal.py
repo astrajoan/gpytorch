@@ -10,6 +10,7 @@ from typing import Optional, Tuple, Union
 import torch
 from linear_operator import to_dense, to_linear_operator
 from linear_operator.operators import DiagLinearOperator, LinearOperator, RootLinearOperator
+from linear_operator.utils.lanczos import lanczos_tridiag
 from torch import Tensor
 from torch.distributions import MultivariateNormal as TMultivariateNormal
 from torch.distributions.kl import register_kl
@@ -190,9 +191,13 @@ class MultivariateNormal(TMultivariateNormal, Distribution):
 
         # Get log determininant and first part of quadratic form
         covar = covar.evaluate_kernel()
-        inv_quad, logdet = covar.inv_quad_logdet(inv_quad_rhs=diff.unsqueeze(-1), logdet=True)
+        inv_quad = covar.inv_quad_logdet(inv_quad_rhs=diff.unsqueeze(-1), logdet=False)
+        q, t = lanczos_tridiag(
+            covar.matmul, max_iter=covar.shape[0], dtype=covar.dtype, device=covar.device, matrix_shape=covar.shape
+        )
+        sign, logdet = torch.linalg.slogdet(t)
 
-        res = -0.5 * sum([inv_quad, logdet, diff.size(-1) * math.log(2 * math.pi)])
+        res = -0.5 * sum([inv_quad, sign * logdet, diff.size(-1) * math.log(2 * math.pi)])
         return res
 
     def rsample(self, sample_shape: torch.Size = torch.Size(), base_samples: Optional[Tensor] = None) -> Tensor:
